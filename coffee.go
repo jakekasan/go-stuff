@@ -16,8 +16,8 @@ type machine struct {
 }
 
 func (m machine) use(r resource) {
-  fmt.Println("Using ",m.name," with ",r)
-  time.Sleep(time.Second)
+  fmt.Println("Using ",m.name," with ",r.name)
+  time.Sleep(time.Millisecond)
 }
 
 type resource struct {
@@ -155,11 +155,18 @@ func coffeeBeansManager(rP *resourcePool,running *bool){
   return
 }
 
-func generateOrders(orders *chan order){
-  for range [100]int{}{
+func generateOrders(orders *chan order,running *bool,n int){
+  for i := 0; i < n; i++ {
     choices := []string{"latte","espresso"}
     newOrder := order{coffee: choices[rand.Intn(2)]}
     *orders<-newOrder
+  }
+}
+
+func orderSimulator(orders *chan order,running *bool){
+  for *running {
+    go generateOrders(orders,running,20)
+    time.Sleep(time.Second*5)
   }
 }
 
@@ -176,6 +183,7 @@ func manager(rP *resourcePool,running *bool,orders *chan order){
       time.Sleep(time.Second * 2)
     }
     if len(*orders) < 1 {
+      fmt.Println("No orders to complete...")
       *running = false
     }
   }
@@ -202,19 +210,19 @@ func main(){
     milk: milk,
   }
 
-  go generateOrders(&orders)
+  go orderSimulator(&orders,&running)
+  time.Sleep(time.Second * 5)
 
   go manager(&rP,&running,&orders)
 
   go initBarista(&orders,&rP)
-
-  // go milkManager(&rP,&running)
-  // go coffeeBeansManager(&rP,&running)
-
+  go initBarista(&orders,&rP)
+  go initBarista(&orders,&rP)
 
   for running {
 
   }
+
   fmt.Println("Orders exhausted")
 
 
