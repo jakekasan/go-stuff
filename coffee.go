@@ -20,6 +20,17 @@ func (m machine) use() {
   time.Sleep(time.Second)
 }
 
+type resources struct {
+  name string
+}
+
+type resourcePool struct {
+  grinders chan machines
+  pressers chan machines
+  steamers chan machines
+  coffeeBeans chan resources
+  milk chan resources
+}
 
 // make order channel
 
@@ -62,23 +73,33 @@ func steamMilk(steamers chan machine) string {
 }
 
 func makeLatte(steamedMilk string,espresso string) string {
+  time.Sleep(time.Second * 2)
   return "latte"
 }
 
-func initBarista(orders chan order, grinders chan machine, pressers chan machine, steamers chan machine) {
+func initBarista(orders chan order, resources resourcePool) {
   for ord := range orders {
     switch {
     case ord.coffee == "espresso":
-      groundCoffee := grindCoffeeBeans(grinders)
-      espresso := makeEspresso(groundCoffee,pressers)
+      groundCoffee := grindCoffeeBeans(resources.grinders)
+      espresso := makeEspresso(groundCoffee,resources.pressers)
       fmt.Println("Finished",espresso)
     case ord.coffee == "latte":
-      groundCoffee := grindCoffeeBeans(grinders)
-      espresso := makeEspresso(groundCoffee,pressers)
-      steamedMilk := steamMilk(steamers)
+      groundCoffee := grindCoffeeBeans(resources.grinders)
+      espresso := makeEspresso(groundCoffee,resources.pressers)
+      steamedMilk := steamMilk(resources.steamers)
       latte := makeLatte(steamedMilk,espresso)
       fmt.Println("Finished",latte)
     }
+  }
+}
+
+func runCoffeeShop(iterations int) {
+  finished := false
+  go initBarista()
+  go initBarista()
+  for !finished {
+
   }
 }
 
@@ -91,6 +112,7 @@ func main(){
   grinders := makeNewMachineChannel(2,"grinder")
   pressers := makeNewMachineChannel(2,"presser")
   steamers := makeNewMachineChannel(2,"steamer")
+  coffeeBeans :=
 
   for range [5]int{}{
     orders<-order{coffee: "latte"}
@@ -100,6 +122,8 @@ func main(){
     orders<-order{coffee: "espresso"}
   }
 
+  go initBarista(orders,grinders,pressers,steamers)
+  go initBarista(orders,grinders,pressers,steamers)
   go initBarista(orders,grinders,pressers,steamers)
   go initBarista(orders,grinders,pressers,steamers)
 
