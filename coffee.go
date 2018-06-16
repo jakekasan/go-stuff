@@ -3,33 +3,62 @@ package main
 import (
   "fmt"
   "time"
+  "math/rand"
 )
 
 
 type order struct {
   coffee string
-  cost int
 }
 
 type machine struct {
   name string
 }
 
-func (m machine) use() {
-  fmt.Println("Using ",m.name)
+func (m machine) use(r resource) {
+  fmt.Println("Using ",m.name," with ",r)
   time.Sleep(time.Second)
 }
 
-type resources struct {
+type resource struct {
   name string
 }
 
 type resourcePool struct {
-  grinders chan machines
-  pressers chan machines
-  steamers chan machines
-  coffeeBeans chan resources
-  milk chan resources
+  grinders chan machine
+  pressers chan machine
+  steamers chan machine
+  coffeeBeans chan resource
+  milk chan resource
+}
+
+func (rP *resourcePool) order(toOrder string) {
+  switch {
+  case toOrder == "coffeeBeans":
+    for i := 0; i < 10; i++ {
+      r := resource{name: "coffeeBeans"}
+      rP.coffeeBeans<-r
+      //*rP.addBeans(resource{name: "coffeeBeans"})
+    }
+  case toOrder == "milk":
+    for i := 0; i < 10; i++ {
+      r := resource{name: "milk"}
+      rP.milk<-r
+    }
+  default:
+    return
+  }
+  return
+}
+
+func (rp *resourcePool) addMilk(r resource){
+  rp.milk<-r
+  return
+}
+
+func (rp *resourcePool) addBeans(r resource){
+  rp.coffeeBeans<-r
+  return
 }
 
 // make order channel
@@ -51,23 +80,33 @@ func makeNewMachineChannel(n int,name string) chan machine {
   return machines
 }
 
-func grindCoffeeBeans(grinders chan machine) string {
-  grinder := <-grinders
-  grinder.use()
-  grinders<-grinder
-  return "groundCoffee"
+func makeResourcesChannel(n int, name string) chan resource {
+  resChan := make(chan resource,n)
+  for i := 0; i < n; i++ {
+    resChan<-resource{name: name}
+  }
+  return resChan
 }
 
-func makeEspresso(groundCoffee string,pressers chan machine) string {
+func grindCoffeeBeans(grinders chan machine,coffeeBeans chan resource) resource {
+  grinder := <-grinders
+  coffeeBean := <-coffeeBeans
+  grinder.use(coffeeBean)
+  grinders<-grinder
+  return resource{name:"groundCoffee"}
+}
+
+func makeEspresso(pressers chan machine,groundCoffee resource) string {
   presser := <-pressers
-  presser.use()
+  presser.use(groundCoffee)
   pressers<-presser
   return "espresso"
 }
 
-func steamMilk(steamers chan machine) string {
+func steamMilk(steamers chan machine, milkSource chan resource) string {
   steamer := <-steamers
-  steamer.use()
+  milk := <-milkSource
+  steamer.use(milk)
   steamers<-steamer
   return "steamedMilk"
 }
@@ -77,59 +116,106 @@ func makeLatte(steamedMilk string,espresso string) string {
   return "latte"
 }
 
-func initBarista(orders chan order, resources resourcePool) {
-  for ord := range orders {
+func initBarista(orders *chan order, rP *resourcePool) {
+  for ord := range *orders {
     switch {
     case ord.coffee == "espresso":
-      groundCoffee := grindCoffeeBeans(resources.grinders)
-      espresso := makeEspresso(groundCoffee,resources.pressers)
+      groundCoffee := grindCoffeeBeans(rP.grinders,rP.coffeeBeans)
+      espresso := makeEspresso(rP.pressers,groundCoffee)
       fmt.Println("Finished",espresso)
     case ord.coffee == "latte":
-      groundCoffee := grindCoffeeBeans(resources.grinders)
-      espresso := makeEspresso(groundCoffee,resources.pressers)
-      steamedMilk := steamMilk(resources.steamers)
+      groundCoffee := grindCoffeeBeans(rP.grinders,rP.coffeeBeans)
+      espresso := makeEspresso(rP.pressers,groundCoffee)
+      steamedMilk := steamMilk(rP.steamers,rP.milk)
       latte := makeLatte(steamedMilk,espresso)
       fmt.Println("Finished",latte)
     }
   }
 }
 
-func runCoffeeShop(iterations int) {
-  finished := false
-  go initBarista()
-  go initBarista()
-  for !finished {
+// func runCoffeeShop(iterations int) {
+//   finished := false
+// }
 
+func milkManager(rP *resourcePool,running *bool){
+  <-rP.milk
+  fmt.Println("Milk exhausted")
+  name := "milk"
+  rP.order(name)
+  go milkManager(rP,running)
+  return
+}
+
+func coffeeBeansManager(rP *resourcePool,running *bool){
+  <-rP.coffeeBeans
+  fmt.Println("Coffee beans exhausted")
+  name := "coffeeBeans"
+  rP.order(name)
+  go coffeeBeansManager(rP,running)
+  return
+}
+
+func generateOrders(orders *chan order){
+  for range [100]int{}{
+    choices := []string{"latte","espresso"}
+    newOrder := order{coffee: choices[rand.Intn(2)]}
+    *orders<-newOrder
   }
 }
 
+func manager(rP *resourcePool,running *bool,orders *chan order){
+  for *running {
+    if len(rP.milk) < 1 {
+      fmt.Println("Out of milk, ordering...")
+      go rP.order("milk")
+      time.Sleep(time.Second * 2)
+    }
+    if len(rP.coffeeBeans) < 1 {
+      fmt.Println("Out of coffee beans, ordering...")
+      go rP.order("coffeeBeans")
+      time.Sleep(time.Second * 2)
+    }
+    if len(*orders) < 1 {
+      *running = false
+    }
+  }
+}
 
 func main(){
   // main stuff!
+
+  var running bool = true
 
   orders := makeOrderChannel(10)
 
   grinders := makeNewMachineChannel(2,"grinder")
   pressers := makeNewMachineChannel(2,"presser")
   steamers := makeNewMachineChannel(2,"steamer")
-  coffeeBeans :=
+  coffeeBeans := makeResourcesChannel(10,"coffeeBeans")
+  milk := makeResourcesChannel(10,"milk")
 
-  for range [5]int{}{
-    orders<-order{coffee: "latte"}
+  rP := resourcePool{
+    grinders: grinders,
+    pressers: pressers,
+    steamers: steamers,
+    coffeeBeans: coffeeBeans,
+    milk: milk,
   }
 
-  for range [5]int{}{
-    orders<-order{coffee: "espresso"}
+  go generateOrders(&orders)
+
+  go manager(&rP,&running,&orders)
+
+  go initBarista(&orders,&rP)
+
+  // go milkManager(&rP,&running)
+  // go coffeeBeansManager(&rP,&running)
+
+
+  for running {
+
   }
-
-  go initBarista(orders,grinders,pressers,steamers)
-  go initBarista(orders,grinders,pressers,steamers)
-  go initBarista(orders,grinders,pressers,steamers)
-  go initBarista(orders,grinders,pressers,steamers)
-
-
-
-  time.Sleep(time.Second * 60)
+  fmt.Println("Orders exhausted")
 
 
 }
